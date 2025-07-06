@@ -16,8 +16,11 @@ class ProductUsecase:
 
     async def create(self, body: ProductIn) -> ProductOut:
         product_model = ProductModel(**body.model_dump())
-        await self.collection.insert_one(product_model.model_dump())
-
+        try:
+            await self.collection.insert_one(product_model.model_dump())
+        except Exception as exc:
+            from store.core.exceptions import BaseException
+            raise BaseException(message="Erro ao inserir produto") from exc
         return ProductOut(**product_model.model_dump())
 
     async def get(self, id: UUID) -> ProductOut:
@@ -32,12 +35,16 @@ class ProductUsecase:
         return [ProductOut(**item) async for item in self.collection.find()]
 
     async def update(self, id: UUID, body: ProductUpdate) -> ProductUpdateOut:
+        from datetime import datetime
+        update_data = body.model_dump(exclude_none=True)
+        update_data["updated_at"] = datetime.utcnow()
         result = await self.collection.find_one_and_update(
             filter={"id": id},
-            update={"$set": body.model_dump(exclude_none=True)},
+            update={"$set": update_data},
             return_document=pymongo.ReturnDocument.AFTER,
         )
-
+        if not result:
+            raise NotFoundException(message=f"Product not found with filter: {id}")
         return ProductUpdateOut(**result)
 
     async def delete(self, id: UUID) -> bool:

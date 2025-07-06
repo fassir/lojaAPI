@@ -1,3 +1,40 @@
+import decimal
+import uuid
+
+import pytest
+from httpx import AsyncClient
+
+from tests.factories import products_data
+
+
+@pytest.mark.usefixtures("products_inserted")
+async def test_controller_query_should_filter_by_price(client, products_url):
+    response = await client.get(f"{products_url}?min_price=5000&max_price=8000")
+    assert response.status_code == 200
+    data = response.json()
+    assert all(decimal.Decimal(p["price"]) > 5000 and decimal.Decimal(p["price"]) < 8000 for p in data)
+
+async def test_controller_create_should_return_error_on_insertion(monkeypatch, client, products_url):
+    async def fake_insert_one(*args, **kwargs):
+        raise Exception("erro de banco")
+    from store.usecases import product as product_module
+    monkeypatch.setattr(product_module.ProductUsecase, "create", lambda self, body: (_ for _ in ()).throw(Exception("erro de banco")))
+    response = await client.post(products_url, json=products_data()[0])
+    assert response.status_code == 500
+    assert "Erro ao inserir" in response.text
+
+async def test_controller_patch_should_return_not_found(client, products_url):
+    random_id = str(uuid.uuid4())
+    response = await client.patch(f"{products_url}{random_id}", json={"price": "7.000"})
+    assert response.status_code == 404
+    assert "Produto não encontrado" in response.text
+
+@pytest.mark.usefixtures("product_inserted")
+async def test_controller_patch_should_update_updated_at(client, products_url, product_inserted):
+    response = await client.patch(f"{products_url}{product_inserted.id}", json={"price": "7.000"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "updated_at" in data
 from typing import List
 
 import pytest
